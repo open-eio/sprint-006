@@ -1,5 +1,4 @@
-// Demo Code for SerialCommand Library
-// Craig Versek, Jan 2014
+// Craig Versek, May 2015
 // based on code from Steven Cogswell, May 2011
 
 #include <SerialCommand.h>
@@ -56,7 +55,7 @@ void LED_off(SerialCommand this_scmd) {
 }
 
 void REMOTE_LED_on(SerialCommand this_scmd) {
-  const char* buff = "ON";
+  const char* buff = "\x41";  //this corresponds to the packet command "LED.ON" on the remote device
   this_scmd.println("telling remote: LED on");
   byte buffLen=strlen(buff);
   if (radio.sendWithRetry(rfm69config::REMOTEID, buff, buffLen)){
