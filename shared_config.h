@@ -9,4 +9,3 @@ namespace rfm69config{
   const char*   ENCRYPTKEY = "sampleEncryptKey"; //exactly the same 16 characters/bytes on all nodes!
   const bool    IS_RFM69HW = true;               //only for RFM69HW! Leave out if you have RFM69W!
 }
-

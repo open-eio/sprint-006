@@ -23,7 +23,7 @@ bool promiscuousMode = false; //set to 'true' to sniff all packets on the same n
 
 byte ackCount=0;
 uint32_t packetCount = 0;
-bool RFM69_recv_callback(byte* inbuff, size_t& lenByRef){
+bool RFM69_recv_callback(PacketCommand this_pCmd){
   if (radio.receiveDone())
   {
     #ifdef DEBUG
@@ -31,13 +31,10 @@ bool RFM69_recv_callback(byte* inbuff, size_t& lenByRef){
     Serial.print(F("# \tstart: "));
     Serial.println(start_micros);
     #endif
-    lenByRef = radio.DATALEN;
-    for (byte i = 0; i < lenByRef; i++){
-      inbuff[i] = (byte) radio.DATA[i];
-    }
+    this_pCmd.assignInputBuffer(radio.DATA, radio.DATALEN);
     #ifdef DEBUG
     Serial.print(F("# \trecv: "));
-    print_hex(inbuf, NeuroDot::RF24_PACKET_SIZE);
+    print_hex(radio.DATA, radio.DATALEN);
     Serial.println();
     #endif
     if (radio.ACKRequested())
@@ -98,40 +95,8 @@ void setup() {
 
 void loop() {
   //----------------------------------------------------------------------------
-  // handle feeding packets to pCmd parser
-  // FIXME eventually this should get tucked away into a single PacketCommand API call
-  PacketCommand::STATUS pcs;
-  pcs = pCmd.recv();
-  if (pcs == PacketCommand::SUCCESS){  //a packet was received
-    pcs = pCmd.matchCommand();
-    if (pcs == PacketCommand::SUCCESS){  //a command was matched
-      #ifdef DEBUG
-      Serial.print(F("# \tmatched command: "));
-      PacketCommand::CommandInfo cmd = pCmd.getCurrentCommand();
-      Serial.println(cmd.name);
-      #endif
-    }
-    else if (pcs == PacketCommand::ERROR_NO_TYPE_ID_MATCH){  //valid ID but no command was matched
-      #ifdef DEBUG
-      Serial.println(F("# \tno matched command"));
-      #endif
-    }
-    else{
-      Serial.print(F("### Error: pCmd.matchCommand returned status code: "));
-      Serial.println(pcs);
-    }
-    //dispatch to handler or default if no match
-    pCmd.dispatchCommand();
-  }
-  else if (pcs == PacketCommand::NO_PACKET_RECEIVED){
-//    #ifdef DEBUG
-//    Serial.println(F("# no packet received"));
-//    #endif
-  }
-  else {
-    Serial.print(F("### Error: pCmd.recv returned status code: "));
-    Serial.println(pcs);
-  }
+  // handle feeding packets to pCmd parser and dispatching to commands
+  pCmd.processInput();
 }
 
 void LED_on(PacketCommand this_pCmd) {
