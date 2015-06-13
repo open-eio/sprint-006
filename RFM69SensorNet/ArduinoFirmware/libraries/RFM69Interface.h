@@ -25,7 +25,7 @@ static uint8_t  ackCount = 0;
 static uint32_t packetCount = 0;
 //------------------------------------------------------------------------------
 // Routines
-extern void RFM69Interface_remote_default_config();
+extern void RFM69Interface_node_default_config();
 extern void RFM69Interface_gateway_default_config();
 extern void RFM69Interface_start();
 extern void RFM69Interface_process_incoming();

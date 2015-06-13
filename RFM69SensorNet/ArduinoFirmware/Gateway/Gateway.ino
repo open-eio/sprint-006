@@ -1,126 +1,239 @@
-// Craig Versek, May 2015
-// based on code from Steven Cogswell, May 2011
-
-#include <SerialCommand.h>
-#include <SPI.h>
-#include <RFM69.h>
-#include "shared_config.h"
-
-#define arduinoLED 9   // Arduino LED on board
-#define BAUDRATE 115200
-
-RFM69 radio;
-bool promiscuousMode = false; //set to 'true' to sniff all packets on the same network
+//******************************************************************************
+// Gateway Device with RFM69 PacketCommand Interface
 //------------------------------------------------------------------------------
-SerialCommand sCmd(Serial);         // The demo SerialCommand object, initialize with any Stream object
 
+#include <RFM69.h>
+#include <SPI.h>
+#include <SPIFlash.h>
+#include <SerialCommand.h>
+#include <PacketCommand.h>
+#include "network_config.h"
+#include "RFM69Interface.h"
+
+#define DEBUG
+//******************************************************************************
+// Globals
+//------------------------------------------------------------------------------
+// Serial interface (for debugging on remote)
+#define MAX_SERIAL_COMMANDS 10
+#define SERIAL_BAUD   9600
+
+SerialCommand sCmd(Serial, MAX_SERIAL_COMMANDS);
+
+// Non-volatile Data Store
+#ifdef __AVR_ATmega1284P__
+  #define LED           15 // Moteino MEGAs have LEDs on D15
+  #define FLASH_SS      23 // and FLASH SS on D23
+#else
+  #define LED           9 // Moteinos have LEDs on D9
+  #define FLASH_SS      8 // and FLASH SS on D8
+#endif
+
+//////////////////////////////////////////
+// flash(SPI_CS, MANUFACTURER_ID)
+// SPI_CS          - CS pin attached to SPI flash chip (8 in case of Moteino)
+// MANUFACTURER_ID - OPTIONAL, 0x1F44 for adesto(ex atmel) 4mbit flash
+//                             0xEF30 for windbond 4mbit flash
+//////////////////////////////////////////
+SPIFlash flash(FLASH_SS, 0xEF30);
+
+//******************************************************************************
+// misc. Arduino pins
+const uint8_t arduinoLEDPin = 9;  // Moteinos have LEDs on D9
+
+void flash_read(node_flash::datafield_e fieldnum, uint8_t& valByRef);
+void flash_read(node_flash::datafield_e fieldnum, uint8_t* buffer, size_t len);
+
+//******************************************************************************
 void setup() {
-  pinMode(arduinoLED, OUTPUT);      // Configure the onboard LED for output
-  digitalWrite(arduinoLED, LOW);    // default to LED off
+  //----------------------------------------------------------------------------
+  // configure Arduino pins
+  pinMode(arduinoLEDPin,OUTPUT);
+  digitalWrite(arduinoLEDPin, LOW);
+  //----------------------------------------------------------------------------
+  // configure the PacketCommand parser
+  //----------------------------------------------------------------------------
+  // configure the SerialCommand parser
+  //sCmd.addCommand("IDN?", IDN_sCmd_query_handler);
+  sCmd.addCommand("LED.ON", LED_ON_sCmd_action_handler);
+  sCmd.addCommand("LED.OFF", LED_OFF_sCmd_action_handler);
+  sCmd.addCommand("FLASH.DUMP?", FLASH_DUMP_sCmd_query_handler);
+  sCmd.addCommand("FLASH.READ?", FLASH_READ_sCmd_query_handler);
+  sCmd.addCommand("FLASH.WRITE", FLASH_WRITE_sCmd_action_handler);
+  // configure the serial port
+  Serial.begin(SERIAL_BAUD);
+  delay(10);
   
-  //setup rfm69
-  radio.initialize(rfm69config::FREQUENCY,rfm69config::GATEWAYID,rfm69config::NETWORKID);
-  if(rfm69config::IS_RFM69HW){
-    radio.setHighPower(); //only for RFM69HW!
+  //start up the flash memory
+  #ifdef DEBUG
+  Serial.print("Initializing flash memory...");
+  #endif
+  if (flash.initialize()){
+    #ifdef DEBUG
+    Serial.println("Init OK!");
+    #endif
   }
-  radio.encrypt(rfm69config::ENCRYPTKEY);
-  radio.promiscuous(promiscuousMode);
-
-
-  Serial.begin(BAUDRATE);
-  // Setup callbacks for SerialCommand commands
-  sCmd.addCommand("ON",    LED_on);          // Turns LED on
-  sCmd.addCommand("OFF",   LED_off);         // Turns LED off
-  sCmd.addCommand("REMOTE.ON",    REMOTE_LED_on);          // Turns LED on
-  sCmd.addCommand("REMOTE.OFF",   REMOTE_LED_off);         // Turns LED off
-  sCmd.addCommand("HELLO", sayHello);        // Echos the string argument back
-  sCmd.addCommand("P",     processCommand);  // Converts two arguments to integers and echos them back
-  sCmd.setDefaultHandler(unrecognized);      // Handler for command that isn't matched  (says "What?")
-  Serial.println("Ready");
+  else{
+    #ifdef DEBUG
+    Serial.println("Init FAIL!");
+    #endif
+  }
+  //----------------------------------------------------------------------------
+  // configure as gateway device
+  RFM69Interface_gateway_default_config();
+  //----------------------------------------------------------------------------
+  // start up the radio interface
+  RFM69Interface_start();
 }
-
+//******************************************************************************
 void loop() {
-  sCmd.readSerial();     // We don't do much, just process serial commands
+  //----------------------------------------------------------------------------
+  // handle feeding packets to pCmd parser and dispatching to commands
+  RFM69Interface_process_incoming();
+  //
+  sCmd.readSerial();
+  
+}
+
+//******************************************************************************
+// pCmd Handlers
+void LED_ON_pCmd_action_handler(PacketCommand& this_pCmd) {
+  #ifdef DEBUG
+  Serial.println(F("LED_ON_pCmd_action_handler"));
+  #endif
+  digitalWrite(arduinoLEDPin, HIGH);
+}
+  
+void LED_OFF_pCmd_action_handler(PacketCommand& this_pCmd) {
+  #ifdef DEBUG
+  Serial.println(F("LED_OFF_pCmd_action_handler"));
+  #endif
+  digitalWrite(arduinoLEDPin, LOW);
 }
 
 
-void LED_on(SerialCommand this_scmd) {
-  this_scmd.println("LED on");
-  digitalWrite(arduinoLED, HIGH);
+void SHT_READ_pCmd_query_handler(PacketCommand& this_pCmd) {
+  #ifdef DEBUG
+  Serial.println(F("SHT_READ_pCmd_query_handler"));
+  #endif
+}
+//******************************************************************************
+// sCmd Handlers
+void IDN_sCmd_query_handler(SerialCommand this_sCmd) {
+  #ifdef DEBUG
+  this_sCmd.println(F("IDN_sCmd_query_handler"));
+  #endif
+  Serial.print(F("RFM69 Gateway #"));
+  uint8_t idn;         //formatted to print as string
+  flash_read(node_flash::IDN, idn); //updated by reference
+  Serial.print(idn);
+  
 }
 
-void LED_off(SerialCommand this_scmd) {
-  this_scmd.println("LED off");
-  digitalWrite(arduinoLED, LOW);
+void LED_ON_sCmd_action_handler(SerialCommand this_sCmd) {
+  #ifdef DEBUG
+  this_sCmd.println(F("LED_ON_sCmd_action_handler"));
+  #endif
+  digitalWrite(arduinoLEDPin, HIGH);
+}
+  
+void LED_OFF_sCmd_action_handler(SerialCommand this_sCmd) {
+  #ifdef DEBUG
+  this_sCmd.println(F("LED_OFF_sCmd_action_handler"));
+  #endif
+  digitalWrite(arduinoLEDPin, LOW);
 }
 
-void REMOTE_LED_on(SerialCommand this_scmd) {
-  const char* buff = "\x41";  //this corresponds to the packet command "LED.ON" on the remote device
-  this_scmd.println("telling remote: LED on");
-  byte buffLen=strlen(buff);
-  if (radio.sendWithRetry(rfm69config::REMOTEID, buff, buffLen)){
-    Serial.print(" ok!");
+void FLASH_DUMP_sCmd_query_handler(SerialCommand this_sCmd) {
+  #ifdef DEBUG
+  this_sCmd.println(F("FLASH_DUMP_sCmd_query_handler"));
+  #endif
+  int counter = 0;
+
+  while(counter<=256){
+    Serial.print(flash.readByte(counter++), HEX);
+    Serial.print('.');
+  }
+  Serial.println();
+}
+
+#define FLASH_READ_BUFFER_SIZE 64
+void FLASH_READ_sCmd_query_handler(SerialCommand this_sCmd) {
+  uint8_t buffer[FLASH_READ_BUFFER_SIZE];
+  #ifdef DEBUG
+  this_sCmd.println(F("FLASH_READ_sCmd_query_handler"));
+  #endif
+  char* arg1 = this_sCmd.next();
+  if (arg1 == NULL){
+    this_sCmd.println(F("###ERROR FLASH.READ require one or two arguments (fieldnum, [len])"));
   }
   else{
-    Serial.print(" fail!");
+    char* arg2 = this_sCmd.next();
+    if (arg2 == NULL){
+      //interpet value as ASCII integer
+      uint32_t fieldnum = atoi(arg1);
+      uint8_t valByRef;
+      flash_read((node_flash::datafield_e) fieldnum, valByRef);
+      Serial.print(valByRef);
+    }
+    else{
+      size_t len = min(atoi(arg2), FLASH_READ_BUFFER_SIZE); //limit read length
+      //interpret string of bytes as uint8_t array
+      flash_read((node_flash::datafield_e) fieldnum, buffer, len)
+      for(int i=0; i < len; i++){
+        Serial.write(buffer[i]);
+      }
+    }
   }
 }
 
-
-void REMOTE_LED_off(SerialCommand this_scmd) {
-  const char* buff = "OFF";
-  this_scmd.println("telling remote: LED off");
-  byte buffLen=strlen(buff);
-  if (radio.sendWithRetry(2, buff, buffLen)){
-    Serial.print(" ok!");
+void FLASH_WRITE_sCmd_action_handler(SerialCommand this_sCmd) {
+  uint8_t buffer[FLASH_READ_BUFFER_SIZE];
+  #ifdef DEBUG
+  this_sCmd.println(F("FLASH_WRITE_sCmd_query_handler"));
+  #endif
+  char* arg1 = this_sCmd.next();
+  if (arg1 == NULL){
+    this_sCmd.println(F("###ERROR FLASH.WRITE require one or two arguments (fieldnum, [len])"));
   }
   else{
-    Serial.print(" fail!");
+    char* arg2 = this_sCmd.next();
+    if (arg2 == NULL){
+      //interpet value as ASCII integer
+      uint32_t fieldnum = atoi(arg1);
+      uint8_t valByRef;
+      flash_read((node_flash::datafield_e) fieldnum, valByRef);
+      Serial.print(valByRef);
+    }
+    else{
+      size_t len = min(atoi(arg2), FLASH_READ_BUFFER_SIZE); //limit read length
+      //interpret string of bytes as uint8_t array
+      flash_read((node_flash::datafield_e) fieldnum, buffer, len)
+      for(int i=0; i < len; i++){
+        Serial.write(buffer[i]);
+      }
+    }
   }
 }
 
-void sayHello(SerialCommand this_scmd) {
-  char *arg;
-  arg = this_scmd.next();    // Get the next argument from the SerialCommand object buffer
-  if (arg != NULL) {    // As long as it existed, take it
-    this_scmd.print("Hello ");
-    this_scmd.println(arg);
-  }
-  else {
-    this_scmd.println("Hello, whoever you are");
+//******************************************************************************
+// Helper Functions
+void flash_read(node_flash::datafields fieldnum, uint8_t& valByRef){
+  valByRef = flash.readByte(fieldnum);
+}
+
+void flash_read(node_flash::datafields fieldnum, uint8_t* buffer, size_t len){
+  for(size_t i=0; i < len; i++){
+    buffer[i] = flash.readByte(fieldnum + i);
   }
 }
 
-
-void processCommand(SerialCommand this_scmd) {
-  int aNumber;
-  char *arg;
-
-  this_scmd.println("We're in processCommand");
-  arg = this_scmd.next();
-  if (arg != NULL) {
-    aNumber = atoi(arg);    // Converts a char string to an integer
-    this_scmd.print("First argument was: ");
-    this_scmd.println(aNumber);
-  }
-  else {
-    this_scmd.println("No arguments");
-  }
-
-  arg = this_scmd.next();
-  if (arg != NULL) {
-    aNumber = atol(arg);
-    this_scmd.print("Second argument was: ");
-    this_scmd.println(aNumber);
-  }
-  else {
-    this_scmd.println("No second argument");
-  }
+void flash_write(node_flash::datafields fieldnum, uint8_t val){
+  flash.writeByte(fieldnum,val);
 }
 
-// This gets set as the default handler, and gets called when no other command matches.
-void unrecognized(const char *command, SerialCommand this_scmd) {
-  this_scmd.print("Did not recognize \"");
-  this_scmd.print(command);
-  this_scmd.println("\" as a command.");
+void flash_write(node_flash::datafields fieldnum, uint8_t* buffer, size_t len){
+  for(size_t i=0; i < len; i++){
+    flash.writeByte((uint8_t) fieldnum + i,buffer[i]);
+  }
 }

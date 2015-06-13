@@ -67,7 +67,7 @@ void pCmd_default_handler(PacketCommand& this_pCmd)
 }
 
 
-void RFM69Interface_remote_default_config() {
+void RFM69Interface_node_default_config() {
   pCmd_RFM69.registerRecvCallback(RFM69_recv_callback);
   pCmd_RFM69.registerDefaultHandler(pCmd_default_handler);
   pCmd_RFM69.resetInputBuffer();
