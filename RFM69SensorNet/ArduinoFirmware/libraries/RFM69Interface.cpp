@@ -91,7 +91,7 @@ void RFM69Interface_remote_default_config() {
 void RFM69Interface_gateway_default_config() {
   //----------------------------------------------------------------------------
   // setup the rfm69 interface
-  Radio.initialize(rfm69config::FREQUENCY,rfm69config::REMOTEID,rfm69config::NETWORKID);
+  Radio.initialize(rfm69config::FREQUENCY,rfm69config::GATEWAYID,rfm69config::NETWORKID);
   if(rfm69config::IS_RFM69HW){
     Radio.setHighPower(); //only for RFM69HW!
   }

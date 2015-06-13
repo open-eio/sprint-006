@@ -11,8 +11,20 @@ namespace rfm69config{
   extern const uint8_t GATEWAYID;  //many nodes can talk to the same gateway
   extern const uint8_t NETWORKID;  //the same on all nodes that talk to each other
   extern const uint8_t FREQUENCY;
-  extern const char*   ENCRYPTKEY; //exactly the same 16 characters/bytes on all nodes!
   extern const bool    IS_RFM69HW; //only for RFM69HW! Leave out if you have RFM69W!
+  extern const char    ENCRYPTKEY[]; //exactly the same 16 characters/bytes on all nodes!
+}
+
+namespace node_flash{
+  //output data
+  enum datafield_e {
+    IDN = 0,
+    NETWORKID = 1,
+    GATEWAYID = 2,
+    FREQUENCY = 3,
+    IS_RFM69HW = 4,
+    ENCRYPTKEY = 5, //skip 16 bytes
+  };
 }
 
 #endif /*__NETWORKCONFIG_H__*/
