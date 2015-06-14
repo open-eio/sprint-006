@@ -109,7 +109,21 @@ void setup() {
   
   #ifdef DEBUG
   char buff[50];
-  sprintf(buff, "\nListening at %d Mhz...", nc.frequency==RF69_433MHZ ? 433 : nc.frequency==RF69_868MHZ ? 868 : 915);
+  uint32_t freq_val;
+  switch(nc.frequency){
+    case RF69_433MHZ:
+      freq_val = 433;
+      break;
+    case RF69_868MHZ:
+      freq_val = 868;
+      break;
+    case RF69_915MHZ:
+      freq_val = 915;
+      break;
+    default:
+      freq_val = 0;
+  }
+  sprintf(buff, "\nListening at %d Mhz...", freq_val);
   Serial.println(buff);
   #endif
 }
