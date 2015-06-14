@@ -8,7 +8,7 @@
 #include <SHT1x.h>
 #include <SerialCommand.h>
 #include <PacketCommand.h>
-#include "network_config.h"
+#include "flash_config.h"
 #include "RFM69Interface.h"
 
 #define DEBUG
@@ -17,39 +17,32 @@
 //------------------------------------------------------------------------------
 // Serial interface (for debugging on remote)
 #define MAX_SERIAL_COMMANDS 10
-#define SERIAL_BAUD   9600
+#define SERIAL_BAUD   115200
 
 SerialCommand sCmd(Serial, MAX_SERIAL_COMMANDS);
 
-// Non-volatile Data Store
+// Board specific pins
 #ifdef __AVR_ATmega1284P__
   #define LED           15 // Moteino MEGAs have LEDs on D15
-  #define FLASH_SS      23 // and FLASH SS on D23
 #else
-  #define LED           9 // Moteinos have LEDs on D9
-  #define FLASH_SS      8 // and FLASH SS on D8
+  #define LED           9  // Moteinos have LEDs on D9
 #endif
-
-//////////////////////////////////////////
-// flash(SPI_CS, MANUFACTURER_ID)
-// SPI_CS          - CS pin attached to SPI flash chip (8 in case of Moteino)
-// MANUFACTURER_ID - OPTIONAL, 0x1F44 for adesto(ex atmel) 4mbit flash
-//                             0xEF30 for windbond 4mbit flash
-//////////////////////////////////////////
-SPIFlash flash(FLASH_SS, 0xEF30);
 
 //------------------------------------------------------------------------------
 // SHT10 Soil moisture sensor
-const uint8_t sht10DataPin  = 6;
-const uint8_t sht10ClockPin = 7;
+// Blue Wire   -> Data
+// Yellow Wire -> Clock
+// Red Wire    -> 3-5 V
+// Green Wire  -> Ground
+
+const uint8_t sht10DataPin  = 3; //blue wire
+const uint8_t sht10ClockPin = 4; //yellow wire
+
 SHT1x sht10(sht10DataPin, sht10ClockPin);
 
 //******************************************************************************
 // misc. Arduino pins
 const uint8_t arduinoLEDPin = 9;  // Moteinos have LEDs on D9
-
-void flash_read(node_flash::datafield_e fieldnum, uint8_t& valByRef);
-void flash_read(node_flash::datafield_e fieldnum, uint8_t* buffer, size_t len);
 
 //******************************************************************************
 void setup() {
@@ -63,22 +56,24 @@ void setup() {
   pCmd_RFM69.addCommand((byte*) "\x42","LED.OFF", LED_OFF_pCmd_action_handler); // Turns LED off  ("\x42" == "B")
   //----------------------------------------------------------------------------
   // configure the SerialCommand parser
-  //sCmd.addCommand("IDN?", IDN_sCmd_query_handler);
+  sCmd.addCommand("IDN?", IDN_sCmd_query_handler);
   sCmd.addCommand("LED.ON", LED_ON_sCmd_action_handler);
   sCmd.addCommand("LED.OFF", LED_OFF_sCmd_action_handler);
   sCmd.addCommand("FLASH.DUMP?", FLASH_DUMP_sCmd_query_handler);
+  sCmd.addCommand("FLASH.ERASE", FLASH_ERASE_sCmd_action_handler);
   sCmd.addCommand("FLASH.READ?", FLASH_READ_sCmd_query_handler);
   sCmd.addCommand("FLASH.WRITE", FLASH_WRITE_sCmd_action_handler);
   sCmd.addCommand("SHT.READ?", SHT_READ_sCmd_query_handler);
+  sCmd.setDefaultHandler(UNRECOGNIZED_sCmd_default_handler);
   // configure the serial port
   Serial.begin(SERIAL_BAUD);
   delay(10);
   
   //start up the flash memory
   #ifdef DEBUG
-  Serial.print("Initializing flash memory...");
+  Serial.print("# Initializing flash memory...");
   #endif
-  if (flash.initialize()){
+  if (node_flash::initialize()){
     #ifdef DEBUG
     Serial.println("Init OK!");
     #endif
@@ -88,21 +83,44 @@ void setup() {
     Serial.println("Init FAIL!");
     #endif
   }
+  #ifdef DEBUG
+  Serial.print(F("# Reading config from flash...\n"));
+  #endif
+  struct Node_Config nc;
+  node_flash::get_config(nc);
+  #ifdef DEBUG
+  Serial.print(F("# nodeID: "));    Serial.println(nc.nodeID);
+  Serial.print(F("# networkID: ")); Serial.println(nc.networkID);
+  Serial.print(F("# gatewayID: ")); Serial.println(nc.gatewayID);
+  Serial.print(F("# frequency: ")); Serial.println(nc.frequency);
+  Serial.print(F("# is_RFM69HW: "));Serial.println(nc.is_RFM69HW);
+  Serial.print(F("# encryptkey: "));
+  for(size_t i=0; i < ENCRYPTKEY_LEN; i++){
+    Serial.print(nc.encryptkey[i]);
+  }
+  Serial.println();
+  #endif
   //----------------------------------------------------------------------------
   // configure as remote device
-  RFM69Interface_remote_default_config();
+  RFM69Interface_node_configure(nc);
   //----------------------------------------------------------------------------
   // start up the radio interface
   RFM69Interface_start();
+  
+  #ifdef DEBUG
+  char buff[50];
+  sprintf(buff, "\nListening at %d Mhz...", nc.frequency==RF69_433MHZ ? 433 : nc.frequency==RF69_868MHZ ? 868 : 915);
+  Serial.println(buff);
+  #endif
 }
+
 //******************************************************************************
 void loop() {
   //----------------------------------------------------------------------------
   // handle feeding packets to pCmd parser and dispatching to commands
   RFM69Interface_process_incoming();
-  //
+  // hanlder commands from serial port
   sCmd.readSerial();
-  
 }
 
 //******************************************************************************
@@ -135,7 +153,7 @@ void IDN_sCmd_query_handler(SerialCommand this_sCmd) {
   #endif
   Serial.print(F("RFM69 Node #"));
   uint8_t idn;         //formatted to print as string
-  flash_read(node_flash::IDN, idn); //updated by reference
+  node_flash::readByte(node_flash::NODEID, idn); //updated by reference
   Serial.print(idn);
   
 }
@@ -154,14 +172,27 @@ void LED_OFF_sCmd_action_handler(SerialCommand this_sCmd) {
   digitalWrite(arduinoLEDPin, LOW);
 }
 
+
+void FLASH_ERASE_sCmd_action_handler(SerialCommand this_sCmd) {
+  #ifdef DEBUG
+  this_sCmd.println(F("FLASH_ERASE_sCmd_action_handler"));
+  Serial.print("Erasing Flash chip ... ");
+  #endif
+  node_flash::erase();
+  #ifdef DEBUG
+  Serial.println("DONE");
+  #endif
+}
+
 void FLASH_DUMP_sCmd_query_handler(SerialCommand this_sCmd) {
   #ifdef DEBUG
   this_sCmd.println(F("FLASH_DUMP_sCmd_query_handler"));
   #endif
   int counter = 0;
-
   while(counter<=256){
-    Serial.print(flash.readByte(counter++), HEX);
+    uint8_t valByRef;
+    node_flash::readByte((node_flash::datafield_e) counter++, valByRef);
+    Serial.print(valByRef, HEX);
     Serial.print('.');
   }
   Serial.println();
@@ -183,13 +214,14 @@ void FLASH_READ_sCmd_query_handler(SerialCommand this_sCmd) {
       //interpet value as ASCII integer
       uint32_t fieldnum = atoi(arg1);
       uint8_t valByRef;
-      flash_read((node_flash::datafield_e) fieldnum, valByRef);
-      Serial.print(valByRef);
+      node_flash::readByte((node_flash::datafield_e) fieldnum, valByRef);
+      Serial.println(valByRef);
     }
     else{
       size_t len = min(atoi(arg2), FLASH_READ_BUFFER_SIZE); //limit read length
+      uint32_t fieldnum = atoi(arg1);
       //interpret string of bytes as uint8_t array
-      flash_read((node_flash::datafield_e) fieldnum, buffer, len)
+      node_flash::readBytes((node_flash::datafield_e) fieldnum, buffer, len);
       for(int i=0; i < len; i++){
         Serial.write(buffer[i]);
       }
@@ -204,24 +236,18 @@ void FLASH_WRITE_sCmd_action_handler(SerialCommand this_sCmd) {
   #endif
   char* arg1 = this_sCmd.next();
   if (arg1 == NULL){
-    this_sCmd.println(F("###ERROR FLASH.WRITE require one or two arguments (fieldnum, [len])"));
+    this_sCmd.println(F("###ERROR FLASH.WRITE requires two arguments (fieldnum, value), 0 given"));
   }
   else{
     char* arg2 = this_sCmd.next();
     if (arg2 == NULL){
-      //interpet value as ASCII integer
-      uint32_t fieldnum = atoi(arg1);
-      uint8_t valByRef;
-      flash_read((node_flash::datafield_e) fieldnum, valByRef);
-      Serial.print(valByRef);
+      this_sCmd.println(F("###ERROR FLASH.WRITE requires two arguments (fieldnum, value), 1 given"));
     }
     else{
-      size_t len = min(atoi(arg2), FLASH_READ_BUFFER_SIZE); //limit read length
-      //interpret string of bytes as uint8_t array
-      flash_read((node_flash::datafield_e) fieldnum, buffer, len)
-      for(int i=0; i < len; i++){
-        Serial.write(buffer[i]);
-      }
+      //interpet value as ASCII integer
+      uint32_t fieldnum = atoi(arg1);
+      uint8_t  value    = atoi(arg2);
+      node_flash::writeByte((node_flash::datafield_e) fieldnum,value);//fieldnum, value);
     }
   }
 }
@@ -235,24 +261,13 @@ void SHT_READ_sCmd_query_handler(SerialCommand this_sCmd) {
   this_sCmd.print(temp_C,3);this_sCmd.print(",");
   this_sCmd.println(humid_RH,3);
 }
+
+// Unrecognized command
+void UNRECOGNIZED_sCmd_default_handler(const char* command, SerialCommand this_sCmd){
+  this_sCmd.print(F("### Error: command '"));
+  this_sCmd.print(command);
+  this_sCmd.print(F("' not recognized ###\n"));
+}
 //******************************************************************************
 // Helper Functions
-void flash_read(node_flash::datafields fieldnum, uint8_t& valByRef){
-  valByRef = flash.readByte(fieldnum);
-}
 
-void flash_read(node_flash::datafields fieldnum, uint8_t* buffer, size_t len){
-  for(size_t i=0; i < len; i++){
-    buffer[i] = flash.readByte(fieldnum + i);
-  }
-}
-
-void flash_write(node_flash::datafields fieldnum, uint8_t val){
-  flash.writeByte(fieldnum,val);
-}
-
-void flash_write(node_flash::datafields fieldnum, uint8_t* buffer, size_t len){
-  for(size_t i=0; i < len; i++){
-    flash.writeByte((uint8_t) fieldnum + i,buffer[i]);
-  }
-}

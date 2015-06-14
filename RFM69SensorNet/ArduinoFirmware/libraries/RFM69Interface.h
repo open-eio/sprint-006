@@ -8,6 +8,8 @@
 
 #define RFM69INTERFACE_DEBUG
 
+
+
 /******************************************************************************/
 // PacketCommand
 //------------------------------------------------------------------------------
@@ -19,14 +21,24 @@ void pCmd_default_handler(PacketCommand& this_pCmd);
 // RFM69
 //------------------------------------------------------------------------------
 extern RFM69 Radio;
-//SPIFlash flash(FLASH_SS, 0xEF30); //EF30 for 4mbit  Windbond chip (W25X40CL)
+
+#define ENCRYPTKEY_LEN 16
+struct Node_Config{
+    uint8_t nodeID;
+    uint8_t networkID;
+    uint8_t gatewayID;
+    uint8_t frequency;
+    bool    is_RFM69HW;
+    char    encryptkey[ENCRYPTKEY_LEN];
+};
+
 static bool     promiscuousMode = false;; //set to 'true' to sniff all packets on the same network
 static uint8_t  ackCount = 0;
 static uint32_t packetCount = 0;
 //------------------------------------------------------------------------------
 // Routines
-extern void RFM69Interface_node_default_config();
-extern void RFM69Interface_gateway_default_config();
+extern void RFM69Interface_node_configure(struct Node_Config nc);
+extern void RFM69Interface_gateway_configure();
 extern void RFM69Interface_start();
 extern void RFM69Interface_process_incoming();
 

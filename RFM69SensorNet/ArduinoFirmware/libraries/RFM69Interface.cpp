@@ -9,7 +9,7 @@
 #include <SPI.h>
 #include <SPIFlash.h> //get it here: https://www.github.com/lowpowerlab/spiflash
 #include <PacketCommand.h>
-#include "network_config.h"
+#include "flash_config.h"
 #include "RFM69Interface.h"
 
 
@@ -23,10 +23,6 @@ PacketCommand pCmd_RFM69(PCMD_MAX_COMMANDS,  // size_t maxCommands
                          );
 
 RFM69 Radio;
-
-
-//SPIFlash flash(FLASH_SS, 0xEF30); //EF30 for 4mbit  Windbond chip (W25X40CL)
-
 
 bool RFM69_recv_callback(PacketCommand& this_pCmd){
   if (Radio.receiveDone())
@@ -66,49 +62,33 @@ void pCmd_default_handler(PacketCommand& this_pCmd)
   Serial.println();
 }
 
-
-void RFM69Interface_node_default_config() {
-  pCmd_RFM69.registerRecvCallback(RFM69_recv_callback);
-  pCmd_RFM69.registerDefaultHandler(pCmd_default_handler);
-  pCmd_RFM69.resetInputBuffer();
+void RFM69Interface_node_configure(struct Node_Config nc) {
   //----------------------------------------------------------------------------
   // setup the rfm69 interface
-  Radio.initialize(rfm69config::FREQUENCY,rfm69config::REMOTEID,rfm69config::NETWORKID);
-  if(rfm69config::IS_RFM69HW){
+  Radio.initialize(nc.frequency,nc.nodeID,nc.networkID);
+  if(nc.is_RFM69HW){
     Radio.setHighPower(); //only for RFM69HW!
   }
-  Radio.encrypt(rfm69config::ENCRYPTKEY);
-  Radio.promiscuous(promiscuousMode);
-  //Radio.setFrequency(919000000);
-  #ifdef RFM69INTERFACE_DEBUG
-  char buff[50];
-  sprintf(buff, "\nListening at %d Mhz...", rfm69config::FREQUENCY==RF69_433MHZ ? 433 : rfm69config::FREQUENCY==RF69_868MHZ ? 868 : 915);
-  Serial.println(buff);
-  #endif
-  //----------------------------------------------------------------------------
+  Radio.encrypt(nc.encryptkey);
+  Radio.promiscuous(false);
 }
 
-void RFM69Interface_gateway_default_config() {
-  //----------------------------------------------------------------------------
-  // setup the rfm69 interface
-  Radio.initialize(rfm69config::FREQUENCY,rfm69config::GATEWAYID,rfm69config::NETWORKID);
-  if(rfm69config::IS_RFM69HW){
-    Radio.setHighPower(); //only for RFM69HW!
-  }
-  Radio.encrypt(rfm69config::ENCRYPTKEY);
-  Radio.promiscuous(promiscuousMode);
-  //------------------------------------------------------
-}
+//void RFM69Interface_gateway_configure() {
+//  //----------------------------------------------------------------------------
+//  // setup the rfm69 interface
+//  Radio.initialize(rfm69config::FREQUENCY,rfm69config::GATEWAYID,rfm69config::NETWORKID);
+//  if(rfm69config::IS_RFM69HW){
+//    Radio.setHighPower(); //only for RFM69HW!
+//  }
+//  Radio.encrypt(rfm69config::ENCRYPTKEY);
+//  Radio.promiscuous(promiscuousMode);
+//  //------------------------------------------------------
+//}
 
 void RFM69Interface_start() {
   pCmd_RFM69.registerRecvCallback(RFM69_recv_callback);
   pCmd_RFM69.registerDefaultHandler(pCmd_default_handler);
   pCmd_RFM69.resetInputBuffer();
-  #ifdef RFM69INTERFACE_DEBUG
-  char buff[50];
-  sprintf(buff, "\nListening at %d Mhz...", rfm69config::FREQUENCY==RF69_433MHZ ? 433 : rfm69config::FREQUENCY==RF69_868MHZ ? 868 : 915);
-  Serial.println(buff);
-  #endif
   //----------------------------------------------------------------------------
 }
 
