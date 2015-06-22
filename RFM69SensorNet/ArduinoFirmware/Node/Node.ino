@@ -15,6 +15,9 @@
 //******************************************************************************
 // Globals
 //------------------------------------------------------------------------------
+// Current Radio Configuration
+struct Node_Config node_config;
+
 // Serial interface (for debugging on remote)
 #define MAX_SERIAL_COMMANDS 10
 #define SERIAL_BAUD   115200
@@ -57,12 +60,16 @@ void setup() {
   //----------------------------------------------------------------------------
   // configure the SerialCommand parser
   sCmd.addCommand("IDN?", IDN_sCmd_query_handler);
-  sCmd.addCommand("LED.ON", LED_ON_sCmd_action_handler);
+  sCmd.addCommand("LED.ON",  LED_ON_sCmd_action_handler);
   sCmd.addCommand("LED.OFF", LED_OFF_sCmd_action_handler);
   sCmd.addCommand("FLASH.DUMP?", FLASH_DUMP_sCmd_query_handler);
   sCmd.addCommand("FLASH.ERASE", FLASH_ERASE_sCmd_action_handler);
   sCmd.addCommand("FLASH.READ?", FLASH_READ_sCmd_query_handler);
   sCmd.addCommand("FLASH.WRITE", FLASH_WRITE_sCmd_action_handler);
+  sCmd.addCommand("RFM69.CONFIG?",    RFM69_CONFIG_sCmd_query_handler);
+  sCmd.addCommand("RFM69.SET_CONFIG", RFM69_SET_CONFIG_sCmd_action_handler);
+  sCmd.addCommand("RFM69.NODEID",     RFM69_NODEID_sCmd_action_handler);
+  //sCmd.addCommand("RFM69.NETWORKID", RFM69_NETWORKID_sCmd_action_handler);
   sCmd.addCommand("SHT.READ?", SHT_READ_sCmd_query_handler);
   sCmd.setDefaultHandler(UNRECOGNIZED_sCmd_default_handler);
   // configure the serial port
@@ -86,23 +93,22 @@ void setup() {
   #ifdef DEBUG
   Serial.print(F("# Reading config from flash...\n"));
   #endif
-  struct Node_Config nc;
-  node_flash::get_config(nc);
+  node_flash::get_config(node_config);
   #ifdef DEBUG
-  Serial.print(F("# nodeID: "));    Serial.println(nc.nodeID);
-  Serial.print(F("# networkID: ")); Serial.println(nc.networkID);
-  Serial.print(F("# gatewayID: ")); Serial.println(nc.gatewayID);
-  Serial.print(F("# frequency: ")); Serial.println(nc.frequency);
-  Serial.print(F("# is_RFM69HW: "));Serial.println(nc.is_RFM69HW);
+  Serial.print(F("# nodeID: "));    Serial.println(node_config.nodeID);
+  Serial.print(F("# networkID: ")); Serial.println(node_config.networkID);
+  Serial.print(F("# gatewayID: ")); Serial.println(node_config.gatewayID);
+  Serial.print(F("# frequency: ")); Serial.println(node_config.frequency);
+  Serial.print(F("# is_RFM69HW: "));Serial.println(node_config.is_RFM69HW);
   Serial.print(F("# encryptkey: "));
   for(size_t i=0; i < ENCRYPTKEY_LEN; i++){
-    Serial.print(nc.encryptkey[i]);
+    Serial.print(node_config.encryptkey[i]);
   }
   Serial.println();
   #endif
   //----------------------------------------------------------------------------
   // configure as remote device
-  RFM69Interface_node_configure(nc);
+  RFM69Interface_node_configure(node_config);
   //----------------------------------------------------------------------------
   // start up the radio interface
   RFM69Interface_start();
@@ -110,7 +116,7 @@ void setup() {
   #ifdef DEBUG
   char buff[50];
   uint32_t freq_val;
-  switch(nc.frequency){
+  switch(node_config.frequency){
     case RF69_433MHZ:
       freq_val = 433;
       break;
@@ -123,9 +129,14 @@ void setup() {
     default:
       freq_val = 0;
   }
-  sprintf(buff, "\nListening at %d Mhz...", freq_val);
+  sprintf(buff, "\n#Listening at %d Mhz...", freq_val);
   Serial.println(buff);
   #endif
+  
+  //Flash LED to signify that we are ready!
+  digitalWrite(arduinoLEDPin, HIGH);
+  delay(500);
+  digitalWrite(arduinoLEDPin, LOW);
 }
 
 //******************************************************************************
@@ -141,14 +152,14 @@ void loop() {
 // pCmd Handlers
 void LED_ON_pCmd_action_handler(PacketCommand& this_pCmd) {
   #ifdef DEBUG
-  Serial.println(F("LED_ON_pCmd_action_handler"));
+  Serial.println(F("#LED_ON_pCmd_action_handler"));
   #endif
   digitalWrite(arduinoLEDPin, HIGH);
 }
   
 void LED_OFF_pCmd_action_handler(PacketCommand& this_pCmd) {
   #ifdef DEBUG
-  Serial.println(F("LED_OFF_pCmd_action_handler"));
+  Serial.println(F("#LED_OFF_pCmd_action_handler"));
   #endif
   digitalWrite(arduinoLEDPin, LOW);
 }
@@ -156,32 +167,31 @@ void LED_OFF_pCmd_action_handler(PacketCommand& this_pCmd) {
 
 void SHT_READ_pCmd_query_handler(PacketCommand& this_pCmd) {
   #ifdef DEBUG
-  Serial.println(F("SHT_READ_pCmd_query_handler"));
+  Serial.println(F("#SHT_READ_pCmd_query_handler"));
   #endif
 }
 //******************************************************************************
 // sCmd Handlers
 void IDN_sCmd_query_handler(SerialCommand this_sCmd) {
   #ifdef DEBUG
-  this_sCmd.println(F("IDN_sCmd_query_handler"));
+  this_sCmd.println(F("#IDN_sCmd_query_handler"));
   #endif
   Serial.print(F("RFM69 Node #"));
   uint8_t idn;         //formatted to print as string
   node_flash::readByte(node_flash::NODEID, idn); //updated by reference
-  Serial.print(idn);
-  
+  Serial.println(idn);
 }
 
 void LED_ON_sCmd_action_handler(SerialCommand this_sCmd) {
   #ifdef DEBUG
-  this_sCmd.println(F("LED_ON_sCmd_action_handler"));
+  this_sCmd.println(F("#LED_ON_sCmd_action_handler"));
   #endif
   digitalWrite(arduinoLEDPin, HIGH);
 }
   
 void LED_OFF_sCmd_action_handler(SerialCommand this_sCmd) {
   #ifdef DEBUG
-  this_sCmd.println(F("LED_OFF_sCmd_action_handler"));
+  this_sCmd.println(F("#LED_OFF_sCmd_action_handler"));
   #endif
   digitalWrite(arduinoLEDPin, LOW);
 }
@@ -190,7 +200,7 @@ void LED_OFF_sCmd_action_handler(SerialCommand this_sCmd) {
 void FLASH_ERASE_sCmd_action_handler(SerialCommand this_sCmd) {
   #ifdef DEBUG
   this_sCmd.println(F("FLASH_ERASE_sCmd_action_handler"));
-  Serial.print("Erasing Flash chip ... ");
+  Serial.print("#Erasing Flash chip ... ");
   #endif
   node_flash::erase();
   #ifdef DEBUG
@@ -200,7 +210,7 @@ void FLASH_ERASE_sCmd_action_handler(SerialCommand this_sCmd) {
 
 void FLASH_DUMP_sCmd_query_handler(SerialCommand this_sCmd) {
   #ifdef DEBUG
-  this_sCmd.println(F("FLASH_DUMP_sCmd_query_handler"));
+  this_sCmd.println(F("#FLASH_DUMP_sCmd_query_handler"));
   #endif
   int counter = 0;
   while(counter<=256){
@@ -216,7 +226,7 @@ void FLASH_DUMP_sCmd_query_handler(SerialCommand this_sCmd) {
 void FLASH_READ_sCmd_query_handler(SerialCommand this_sCmd) {
   uint8_t buffer[FLASH_READ_BUFFER_SIZE];
   #ifdef DEBUG
-  this_sCmd.println(F("FLASH_READ_sCmd_query_handler"));
+  this_sCmd.println(F("#FLASH_READ_sCmd_query_handler"));
   #endif
   char* arg1 = this_sCmd.next();
   if (arg1 == NULL){
@@ -246,7 +256,7 @@ void FLASH_READ_sCmd_query_handler(SerialCommand this_sCmd) {
 void FLASH_WRITE_sCmd_action_handler(SerialCommand this_sCmd) {
   uint8_t buffer[FLASH_READ_BUFFER_SIZE];
   #ifdef DEBUG
-  this_sCmd.println(F("FLASH_WRITE_sCmd_query_handler"));
+  this_sCmd.println(F("#FLASH_WRITE_sCmd_query_handler"));
   #endif
   char* arg1 = this_sCmd.next();
   if (arg1 == NULL){
@@ -266,9 +276,53 @@ void FLASH_WRITE_sCmd_action_handler(SerialCommand this_sCmd) {
   }
 }
 
+
+void RFM69_CONFIG_sCmd_query_handler(SerialCommand this_sCmd) {
+  #ifdef DEBUG
+  this_sCmd.println(F("#RFM69_CONFIG_sCmd_query_handler"));
+  #endif
+  //node_flash::get_config(node_config);
+  //print out the config in JSON format
+  this_sCmd.print(F("{"));
+  this_sCmd.print(F( "\n  \"nodeID\":"));      this_sCmd.print(node_config.nodeID);
+  this_sCmd.print(F(",\n  \"networkID\": "));  this_sCmd.print(node_config.networkID);
+  this_sCmd.print(F(",\n  \"gatewayID\": "));  this_sCmd.print(node_config.gatewayID);
+  this_sCmd.print(F(",\n  \"frequency\": "));  this_sCmd.print(node_config.frequency);
+  this_sCmd.print(F(",\n  \"is_RFM69HW\": ")); this_sCmd.print(node_config.is_RFM69HW);
+  this_sCmd.print(F(",\n  \"encryptkey: \""));
+  for(size_t i=0; i < ENCRYPTKEY_LEN; i++){
+    this_sCmd.print(node_config.encryptkey[i]);
+  }
+  this_sCmd.print(F("\""));
+  this_sCmd.println(F("\n}"));
+}
+
+void RFM69_SET_CONFIG_sCmd_action_handler(SerialCommand this_sCmd) {
+  #ifdef DEBUG
+  this_sCmd.println(F("#RFM69_SET_CONFIG_sCmd_action_handler"));
+  #endif
+  //write the global config to flash NOTE: will erase ALL previous flash contents
+  node_flash::set_config(node_config);
+}
+
+void RFM69_NODEID_sCmd_action_handler(SerialCommand this_sCmd) {
+  #ifdef DEBUG
+  this_sCmd.println(F("#RFM69_NODEID_sCmd_action_handler"));
+  #endif
+  char* arg = this_sCmd.next();
+  if (arg == NULL){
+    this_sCmd.println(F("###ERROR RFM69.NODEID requires one arguments (value), 0 given"));
+  }
+  else{
+    //interpet value as ASCII integer
+    uint8_t value = atoi(arg);
+    node_config.nodeID = value;
+  }
+}
+
 void SHT_READ_sCmd_query_handler(SerialCommand this_sCmd) {
   #ifdef DEBUG
-  this_sCmd.println(F("SHT_READ_sCmd_query_handler"));
+  this_sCmd.println(F("#SHT_READ_sCmd_query_handler"));
   #endif
   float temp_C   = sht10.readTemperatureC();
   float humid_RH = sht10.readHumidity();
